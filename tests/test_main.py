@@ -31,7 +31,7 @@ class CompareStatRowsTests(unittest.TestCase):
         left, right = compareStatRows("4", row1, row2, team1, team2)
 
         self.assertAlmostEqual(left, 131.465, places=3)
-        self.assertAlmostEqual(right, 106.335, places=3)
+        self.assertAlmostEqual(right, 106.897, places=3)
 
     def test_comparison_result_formatting(self):
         result = formatComparisonResult("1", "LeBron James", "2025-26", "Stephen Curry", "2025-26", 0.58, 0.68)

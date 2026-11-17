@@ -1,4 +1,5 @@
 import re
+from functools import lru_cache
 from nba_api.stats.static import players
 from nba_api.stats.endpoints import playercareerstats
 from nba_api.stats.endpoints import leaguedashteamstats
@@ -47,11 +48,23 @@ def normalizeSeason(season):
     return value
 
 
+# cached downloads so repeat lookups don't hit the API again
+@lru_cache(maxsize=64)
+def getCareerStats(player_id):
+    career = playercareerstats.PlayerCareerStats(player_id=player_id, timeout=30)
+    return career.get_data_frames()[0]
+
+@lru_cache(maxsize=16)
+def getTeamStats(season):
+    teams = leaguedashteamstats.LeagueDashTeamStats(
+        season=season, per_mode_detailed="Totals", timeout=30
+    )
+    return teams.get_data_frames()[0]
+
 # gets season stats for a player
 def getSeasonRow(player_id, season):
     normalized = normalizeSeason(season)
-    career = playercareerstats.PlayerCareerStats(player_id=player_id, timeout=30)
-    df = career.get_data_frames()[0]
+    df = getCareerStats(player_id)
     season_rows = df[df["SEASON_ID"] == normalized]
     if season_rows.empty:
         return None
@@ -66,11 +79,7 @@ def findPlayerID(name):
 
 # gets team totals, only rly needed for usg% as of rn
 def getTeamRow(team_id, season):
-    normalized = normalizeSeason(season)
-    teams = leaguedashteamstats.LeagueDashTeamStats(
-        season=normalized, per_mode_detailed="Totals", timeout=30
-    )
-    df = teams.get_data_frames()[0]
+    df = getTeamStats(normalizeSeason(season))
     return df[df["TEAM_ID"] == team_id].iloc[0]
 
 # does the TS% calculations
@@ -85,7 +94,7 @@ def efgper(fgm, tpm, fga):
     if fga == 0:
         return 0.0
     efg = (fgm + 0.5 * tpm) / fga
-    return round(efg, 3)
+    return efg
 
 # does the VORP calculations, Box +/-, % of Minutes Played, Team games (games played so far in the season)
 def vorpcalc(boxPm, minPer, teamGames):
@@ -175,7 +184,7 @@ def formatComparisonResult(stat_choice, name1, season1, name2, season2, left, ri
     if stat_choice == "3":
         return f"{name1} {season1} VORP: {left:.1f}\n{name2} {season2} VORP: {right:.1f}"
     if stat_choice == "4":
-        return f"{name1} {season1} USG%: {left:.1%}\n{name2} {season2} USG%: {right:.1%}"
+        return f"{name1} {season1} USG%: {left:.1f}\n{name2} {season2} USG%: {right:.1f}"
     if stat_choice == "5":
         stats = [("Points", "PTS"), ("Rebounds", "REB"), ("Assists", "AST"), ("Blocks", "BLK"), ("Steals", "STL"), ("Turnovers", "TOV")]
         lines = [f"{name1} {season1} per 36 minutes:"]
@@ -361,7 +370,7 @@ def main_loop():
                 tpm = int(input("Total 3-Pointers made?: "))
                 fga = int(input("Field Goal Attempts?: "))
                 efg = efgper(fgm, tpm, fga)
-                print(f"eFG%: {efg}")
+                print(f"The eFG% is: {efg:.1%}")
 
             # Value over Replacement Player
             elif choice == 3:

@@ -3,9 +3,10 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 from main import (
-    buildLeaderboard, currentSeason, efgper, findPlayerID, getSeasonRow,
-    getTeamRow, getWeekStats, leaderboardStats, normalizeSeason, per36,
-    percalc, threeparate, tsper, usgcalc, vorpcalc,
+    buildLeaderboard, compareStatRows, currentSeason, efgper, findPlayerID,
+    formatComparisonResult, getSeasonRow, getTeamRow, getWeekStats,
+    leaderboardStats, normalizeSeason, per36, percalc, threeparate, tsper,
+    usgcalc, vorpcalc,
 )
 
 # =====================================================================
@@ -20,6 +21,7 @@ ORANGE_HOVER = "#D96120"
 TEXT = "#172B42"
 MUTED = "#66778A"
 BORDER = "#DCE4ED"
+ERROR = "#A33A2B"
 FONT = "Segoe UI"
 
 root = tk.Tk()
@@ -28,6 +30,31 @@ root.title("National Basketball Association Advanced Statistics Calculator")
 root.geometry("920x820")
 root.minsize(760, 680)
 root.configure(bg = BG)
+
+
+def runInBackground(work, onDone, onError):
+    """Run work() on a worker thread so the window stays responsive.
+
+    onDone(result) or onError(exception) is called back on the Tk thread.
+    """
+    resultQueue = queue.Queue()
+
+    def worker():
+        try:
+            resultQueue.put((True, work()))
+        except Exception as error:
+            resultQueue.put((False, error))
+
+    def poll():
+        try:
+            ok, value = resultQueue.get_nowait()
+        except queue.Empty:
+            root.after(100, poll)
+            return
+        (onDone if ok else onError)(value)
+
+    threading.Thread(target = worker, daemon = True).start()
+    root.after(100, poll)
 
 header = tk.Frame(root, bg = NAVY, height = 112)
 header.pack(fill = "x")
@@ -124,7 +151,6 @@ leaderTable.configure(yscrollcommand = leaderScrollbar.set)
 leaderTable.pack(side = "left", fill = "both", expand = True)
 leaderScrollbar.pack(side = "right", fill = "y")
 
-leaderResultsQueue = queue.Queue()
 leaderLoadInProgress = False
 
 # =====================================================================
@@ -159,49 +185,40 @@ def loadLeaderboard():
         leaderTable.delete(item)
 
     def fetchResults():
-        try:
-            df = getWeekStats()
-            if df.empty:
-                leaderResultsQueue.put((statKey, [], "No games found in the last 7 days.", None))
-                return
-            info = leaderboardStats[statKey]
-            results = buildLeaderboard(df, info["calc"], 2, info["minFga"])[:10]
-            message = None if results else "No players qualified for this leaderboard in the last 7 days."
-            leaderResultsQueue.put((statKey, results, message, None))
-        except Exception as error:
-            leaderResultsQueue.put((statKey, [], None, str(error)))
+        df = getWeekStats()
+        if df.empty:
+            return [], "No games found in the last 7 days."
+        info = leaderboardStats[statKey]
+        results = buildLeaderboard(df, info["calc"], 2, info["minFga"])[:10]
+        message = None if results else "No players qualified for this leaderboard in the last 7 days."
+        return results, message
 
-    threading.Thread(target = fetchResults, daemon = True).start()
-    root.after(100, pollLeaderboardResults)
+    def finishLoading():
+        global leaderLoadInProgress
+        leaderLoadInProgress = False
+        leaderRefreshButton.configure(state = "normal")
+        leaderMenu.configure(state = "normal")
 
+    def onDone(outcome):
+        finishLoading()
+        results, message = outcome
+        if message:
+            leaderStatus.configure(text = message, fg = MUTED)
+            return
+        info = leaderboardStats[statKey]
+        leaderStatus.configure(text = f"Top 10 · {info['label']} · last 7 days", fg = MUTED)
+        for rank, (name, team, value) in enumerate(results, start = 1):
+            shownValue = f"{value:.1%}" if info["percent"] else f"{value:.1f}"
+            leaderTable.insert("", "end", values = (rank, name, team, shownValue))
 
-def pollLeaderboardResults():
-    global leaderLoadInProgress
-    try:
-        statKey, results, message, error = leaderResultsQueue.get_nowait()
-    except queue.Empty:
-        root.after(100, pollLeaderboardResults)
-        return
-
-    leaderLoadInProgress = False
-    leaderRefreshButton.configure(state = "normal")
-    leaderMenu.configure(state = "normal")
-
-    if error:
+    def onError(error):
+        finishLoading()
         leaderStatus.configure(
             text = f"Could not load leaderboard. Check your connection and try again. ({error})",
-            fg = "#A33A2B",
+            fg = ERROR,
         )
-        return
-    if message:
-        leaderStatus.configure(text = message, fg = MUTED)
-        return
 
-    info = leaderboardStats[statKey]
-    leaderStatus.configure(text = f"Top 10 · {info['label']} · last 7 days", fg = MUTED)
-    for rank, (name, team, value) in enumerate(results, start = 1):
-        shownValue = f"{value:.1%}" if info["percent"] else f"{value:.1f}"
-        leaderTable.insert("", "end", values = (rank, name, team, shownValue))
+    runInBackground(fetchResults, onDone, onError)
 
 navButtons = {}
 for page, label in ((pageCalc, "Calculator"), (pageStats, "Statistics"),
@@ -302,22 +319,32 @@ def makeStatsForm(parent, title, fields, lookup):
     labelResult = tk.Label(frame, text = "", font = (FONT, 11, "bold"),
                            bg = CARD, fg = TEXT, wraplength = 620)
 
+    def onDone(text):
+        lookupButton.configure(state = "normal")
+        labelResult.config(text = text, fg = TEXT)
+
+    def onError(error):
+        lookupButton.configure(state = "normal")
+        if isinstance(error, ValueError):
+            message = "Please enter a valid number for Box +/-."
+        else:
+            message = "Statistics lookup failed. Check your connection and inputs."
+        labelResult.config(text = message, fg = ERROR)
+
     def onClick():
         values = [entry.get().strip() for entry in entries]
         if any(not value for value in values):
-            labelResult.config(text = "Please fill in every field.")
+            labelResult.config(text = "Please fill in every field.", fg = ERROR)
             return
-        try:
-            labelResult.config(text = lookup(*values))
-        except ValueError:
-            labelResult.config(text = "Please enter a valid number for Box +/-." )
-        except Exception:
-            labelResult.config(text = "Statistics lookup failed. Check your connection and inputs.")
+        lookupButton.configure(state = "disabled")
+        labelResult.config(text = "Looking up statistics…", fg = MUTED)
+        runInBackground(lambda: lookup(*values), onDone, onError)
 
-    tk.Button(frame, text = "Look up statistics", command = onClick,
+    lookupButton = tk.Button(frame, text = "Look up statistics", command = onClick,
               font = (FONT, 10, "bold"), bg = ORANGE, fg = "#FFFFFF",
               activebackground = ORANGE_HOVER, activeforeground = "#FFFFFF",
-              bd = 0, padx = 24, pady = 9, cursor = "hand2", relief = "flat").pack(pady = 16)
+              bd = 0, padx = 24, pady = 9, cursor = "hand2", relief = "flat")
+    lookupButton.pack(pady = 16)
     labelResult.pack(pady = 5)
     return frame
 
@@ -570,54 +597,68 @@ def onComparePlayers():
     season1 = normalizeSeason(player1Season.get().strip() or currentSeason())
     name2 = player2Entry.get().strip()
     season2 = normalizeSeason(player2Season.get().strip() or currentSeason())
+    needsTeams = statKey in ("3", "4")
 
     if not name1 or not name2:
-        comparisonResult.config(text = "Please enter both player names.", fg = "#A33A2B")
+        comparisonResult.config(text = "Please enter both player names.", fg = ERROR)
         return
 
-    try:
-        row1, error1 = getStatsRow(name1, season1)
-        row2, error2 = getStatsRow(name2, season2)
-        if error1:
-            comparisonResult.config(text = error1, fg = "#A33A2B")
+    # validate Box +/- up front so bad input never triggers a network call
+    boxPm1Value = boxPm2Value = None
+    if statKey == "3":
+        if not boxPm1.get().strip() or not boxPm2.get().strip():
+            comparisonResult.config(text = "Please enter Box +/- values for both players to compare VORP.", fg = ERROR)
             return
-        if error2:
-            comparisonResult.config(text = error2, fg = "#A33A2B")
+        try:
+            boxPm1Value = float(boxPm1.get())
+            boxPm2Value = float(boxPm2.get())
+        except ValueError:
+            comparisonResult.config(text = "Box +/- values must be numbers.", fg = ERROR)
             return
 
+    def work():
+        row1, error1 = getStatsRow(name1, season1)
+        if error1:
+            return error1, ERROR
+        row2, error2 = getStatsRow(name2, season2)
+        if error2:
+            return error2, ERROR
+
         team1 = team2 = None
-        if statKey in ("3", "4"):
+        if needsTeams:
             if row1["TEAM_ID"] == 0 or row2["TEAM_ID"] == 0:
-                comparisonResult.config(text = "Team stats are unavailable for players traded midseason.", fg = "#A33A2B")
-                return
+                return "Team stats are unavailable for players traded midseason.", ERROR
             team1 = getTeamRow(row1["TEAM_ID"], season1)
             team2 = getTeamRow(row2["TEAM_ID"], season2)
             if team1["GP"] == 0 or team2["GP"] == 0:
-                comparisonResult.config(text = "One of these teams has not played any games yet.", fg = "#A33A2B")
-                return
+                return "One of these teams has not played any games yet.", ERROR
 
-        boxPm1Value = None
-        boxPm2Value = None
-        if statKey == "3":
-            if not boxPm1.get().strip() or not boxPm2.get().strip():
-                comparisonResult.config(text = "Please enter Box +/- values for both players to compare VORP.", fg = "#A33A2B")
-                return
-            boxPm1Value = float(boxPm1.get())
-            boxPm2Value = float(boxPm2.get())
+        left, right = compareStatRows(statKey, row1, row2, team1, team2, boxPm1Value, boxPm2Value)
+        return formatComparisonResult(statKey, name1, season1, name2, season2, left, right), TEXT
 
-        values = compareStatRows(statKey, row1, row2, team1 if statKey in ("3", "4") else None, team2 if statKey in ("3", "4") else None, boxPm1Value, boxPm2Value)
-        left, right = values
-        comparisonResult.config(text = formatComparisonResult(statKey, name1, season1, name2, season2, left, right), fg = TEXT)
-    except ValueError as valueError:
-        comparisonResult.config(text = str(valueError), fg = "#A33A2B")
-    except Exception:
-        comparisonResult.config(text = "The comparison could not be completed. Check the player names and season values.", fg = "#A33A2B")
+    def onDone(outcome):
+        compareButton.configure(state = "normal")
+        text, color = outcome
+        comparisonResult.config(text = text, fg = color)
+
+    def onError(error):
+        compareButton.configure(state = "normal")
+        if isinstance(error, ValueError):
+            message = str(error)
+        else:
+            message = "The comparison could not be completed. Check your connection, player names and seasons."
+        comparisonResult.config(text = message, fg = ERROR)
+
+    compareButton.configure(state = "disabled")
+    comparisonResult.config(text = "Comparing players…", fg = MUTED)
+    runInBackground(work, onDone, onError)
 
 
-tk.Button(comparisonFrame, text = "Compare players", command = onComparePlayers,
+compareButton = tk.Button(comparisonFrame, text = "Compare players", command = onComparePlayers,
           font = (FONT, 10, "bold"), bg = ORANGE, fg = "#FFFFFF",
           activebackground = ORANGE_HOVER, activeforeground = "#FFFFFF",
-          bd = 0, padx = 24, pady = 9, cursor = "hand2", relief = "flat").pack(pady = 12)
+          bd = 0, padx = 24, pady = 9, cursor = "hand2", relief = "flat")
+compareButton.pack(pady = 12)
 
 selectedCompareStat.trace_add("write", lambda *_: updateCompareFields())
 updateCompareFields()
