@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.svg" alt="NBAASC logo" width="520"></p>
+
 # N.B.A.A.S.C
 ## The National Basketball Association Advanced Statistics Calculator
 

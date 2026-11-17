@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="NBAASC logo">
+  <defs>
+    <clipPath id="ball"><circle cx="62" cy="66" r="40"/></clipPath>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#10243A"/>
+  <circle cx="62" cy="66" r="40" fill="#F47B35"/>
+  <g clip-path="url(#ball)" fill="none" stroke="#10243A" stroke-width="4" stroke-linecap="round">
+    <line x1="62" y1="20" x2="62" y2="112"/>
+    <path d="M34 34 Q52 66 34 98"/>
+    <path d="M90 34 Q72 66 90 98"/>
+  </g>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="18,88 42,70 60,80 96,42" stroke="#10243A" stroke-width="14"/>
+    <polyline points="18,88 42,70 60,80 96,42" stroke="#FFFFFF" stroke-width="7"/>
+  </g>
+  <path d="M110 28 L84 34 L104 54 Z" fill="#FFFFFF" stroke="#10243A" stroke-width="3" stroke-linejoin="round"/>
+</svg>

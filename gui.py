@@ -1,3 +1,4 @@
+import os
 import queue
 import threading
 import tkinter as tk
@@ -154,6 +155,14 @@ class ResultCard(tk.Frame):
 root = tk.Tk()
 
 root.title("National Basketball Association Advanced Statistics Calculator")
+
+# Window/taskbar icon. Built from this file's location so it works when launched from any directory.
+ICON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "logo-mark.png")
+try:
+    appIcon = tk.PhotoImage(file = ICON_PATH)
+    root.iconphoto(True, appIcon)
+except tk.TclError:
+    pass  # icon file missing or unreadable; keep the default icon
 root.geometry("920x820")
 root.minsize(760, 680)
 root.configure(bg = BG)
